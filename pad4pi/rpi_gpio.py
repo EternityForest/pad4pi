@@ -127,11 +127,20 @@ class Keypad():
             GPIO.setup(self._row_pins[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
             GPIO.add_event_detect(self._row_pins[i], GPIO.FALLING, callback=self._onKeyPress, bouncetime=DEFAULT_DEBOUNCE_TIME)
 
+    def _noInterrupts(self):
+        # Turn off interrupts so we don't get more of them while we are scanning
+        for i in range(len(self._row_pins)):
+            GPIO.remove_event_detect(self._row_pins[i])
+
     def _setColumnsAsOutput(self):
         # Set all columns as output low
         for j in range(len(self._col_pins)):
             GPIO.setup(self._col_pins[j], GPIO.OUT)
             GPIO.output(self._col_pins[j], GPIO.LOW)
+
+    def _setColumnsAsTrisPullup(self):
+        for i in range(len(self._col_pins)):
+            GPIO.setup(self._col_pins[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
     def getKey(self):
 
@@ -145,17 +154,31 @@ class Keypad():
                 rowVal = i
                 break
 
-        # Scan columns for pressed key
+        # Scan columns for pressed key,
+        # By setting everything to output pullup and then scanning by setting one at a time LOW.
+        # We never at any point set an outout HIGH.
         colVal = None
         if rowVal is not None:
+            self._noInterrupts()
+            self._setColumnsAsTrisPullup()
+            
             for i in range(len(self._col_pins)):
-                GPIO.output(self._col_pins[i], GPIO.HIGH)
-                if GPIO.input(self._row_pins[rowVal]) == GPIO.HIGH:
-                    GPIO.output(self._col_pins[i], GPIO.LOW)
+                GPIO.setup(self._col_pins[i], GPIO.OUT)
+                GPIO.output(self._col_pins[i], GPIO.LOW)
+                if GPIO.input(self._row_pins[rowVal]) == GPIO.LOW:
+                    GPIO.setup(self._col_pins[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
                     colVal = i
                     break
-                GPIO.output(self._col_pins[i], GPIO.LOW)
-
+                
+                #Set that pin back to being an input
+                GPIO.setup(self._col_pins[i], GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            
+            # Now we go back do the default state
+            self._setColumnsAsOutput()
+            # And then we can turn interrupts back on.  Some pins will still be low at this point,
+            # But that shouldn't trigger anything because we are using edge detect.
+            self._setRowsAsInput()
+            
         # Determine pressed key, if any
         if colVal is not None:
             keyVal = self._keypad[rowVal][colVal]
@@ -188,3 +211,4 @@ if __name__ == "__main__":
     kp.registerKeyPressHandler(printkey)
     i = raw_input('')
     kp.cleanup()
+
